@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  wallet-service:
+    build:
+      context: ./wallet-service
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    container_name: wallet-service
+    networks:
+      - wallet-network
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=wallet-service
+
+  bill-payment-service:
+    build:
+      context: ./bill-payment-service
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    container_name: bill-payment-service
+    networks:
+      - wallet-network
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=bill-payment-service
+
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3003"
+    container_name: notification-service
+    networks:
+      - wallet-network
+    environment:
+      - NODE_ENV=development
+      - SERVICE_NAME=notification-service
+
+networks:
+  wallet-network:
+    driver: bridge
