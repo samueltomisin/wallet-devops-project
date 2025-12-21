@@ -10,13 +10,69 @@ app.use(express.json());
 
 // Mock wallet data (Week 2: replace with database)
 let wallets = {
-  'user1': { balance: 5000, currency: 'NGN' },
-  'user2': { balance: 12000, currency: 'NGN' }
+  'user1': { 
+    balance: 50000, 
+    currency: 'NGN',
+    name: 'Adewale Johnson',
+    email: 'adewale@example.com'
+  },
+  'user2': { 
+    balance: 120000, 
+    currency: 'NGN',
+    name: 'Chioma Okafor',
+    email: 'chioma@example.com'
+  },
+  'user3': { 
+    balance: 75000, 
+    currency: 'NGN',
+    name: 'Aliyu Nasiru',
+    email: 'nasiru@example.com'
+  }
 };
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', service: 'wallet-service' });
+  res.json({ 
+    status: 'healthy', 
+    service: 'wallet-service',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Get all users (for testing)
+app.get('/users', (req, res) => {
+  const users = Object.entries(wallets).map(([userId, wallet]) => ({
+    userId,
+    name: wallet.name,
+    email: wallet.email,
+    balance: wallet.balance,
+    currency: wallet.currency
+  }));
+
+  console.log(`[WALLET] Fetched ${users.length} users`);
+  res.json({ users });
+});
+
+// Get specific user info
+app.get('/users/:userId', (req, res) => {
+  const { userId } = req.params;
+  const wallet = wallets[userId];
+
+  if (!wallet) {
+    return res.status(404).json({ 
+      success: false,
+      error: 'User not found' 
+    });
+  }
+
+  console.log(`[WALLET] User info requested for ${userId}`);
+  res.json({
+    userId,
+    name: wallet.name,
+    email: wallet.email,
+    balance: wallet.balance,
+    currency: wallet.currency
+  });
 });
 
 // Get wallet balance
@@ -25,56 +81,176 @@ app.get('/balance/:userId', (req, res) => {
   const wallet = wallets[userId];
 
   if (!wallet) {
-    return res.status(404).json({ error: 'Wallet not found' });
+    return res.status(404).json({ 
+      success: false,
+      error: 'Wallet not found' 
+    });
   }
 
-  console.log(`[WALLET] Balance check for ${userId}: ${wallet.balance}`);
+  console.log(`[WALLET] Balance check for ${userId}: ₦${wallet.balance.toLocaleString()}`);
   res.json({
     userId,
     balance: wallet.balance,
-    currency: wallet.currency
+    currency: wallet.currency,
+    formattedBalance: `₦${wallet.balance.toLocaleString()}`
   });
 });
 
 // Deduct from balance (called by bill-payment-service)
 app.post('/deduct', (req, res) => {
   const { userId, amount } = req.body;
+
+  // Validation
+  if (!userId || amount === undefined) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Missing required fields: userId, amount' 
+    });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Amount must be greater than 0' 
+    });
+  }
+
   const wallet = wallets[userId];
 
   if (!wallet) {
-    return res.status(404).json({ error: 'Wallet not found' });
+    return res.status(404).json({ 
+      success: false,
+      message: 'Wallet not found' 
+    });
   }
 
   if (wallet.balance < amount) {
-    return res.status(400).json({ error: 'Insufficient balance' });
+    return res.status(400).json({ 
+      success: false,
+      message: `Insufficient balance. Available: ₦${wallet.balance.toLocaleString()}, Required: ₦${amount.toLocaleString()}` 
+    });
   }
 
   wallet.balance -= amount;
-  console.log(`[WALLET] Deducted ${amount} from ${userId}. New balance: ${wallet.balance}`);
+  console.log(`[WALLET] ✅ Deducted ₦${amount.toLocaleString()} from ${userId} (${wallet.name})`);
+  console.log(`[WALLET] New balance: ₦${wallet.balance.toLocaleString()}`);
 
   res.json({
     success: true,
-    newBalance: wallet.balance
+    message: 'Deduction successful',
+    newBalance: wallet.balance,
+    deducted: amount,
+    formattedBalance: `₦${wallet.balance.toLocaleString()}`
   });
 });
 
-// Add to balance (receive payment)
+// Add to balance (receive payment/credit)
 app.post('/credit', (req, res) => {
   const { userId, amount } = req.body;
+
+  // Validation
+  if (!userId || amount === undefined) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Missing required fields: userId, amount' 
+    });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Amount must be greater than 0' 
+    });
+  }
   
   if (!wallets[userId]) {
-    wallets[userId] = { balance: 0, currency: 'NGN' };
+    wallets[userId] = { 
+      balance: 0, 
+      currency: 'NGN',
+      name: 'New User',
+      email: 'newuser@example.com'
+    };
   }
 
   wallets[userId].balance += amount;
-  console.log(`[WALLET] Credited ${amount} to ${userId}. New balance: ${wallets[userId].balance}`);
+  console.log(`[WALLET] ✅ Credited ₦${amount.toLocaleString()} to ${userId} (${wallets[userId].name})`);
+  console.log(`[WALLET] New balance: ₦${wallets[userId].balance.toLocaleString()}`);
 
   res.json({
     success: true,
-    newBalance: wallets[userId].balance
+    message: 'Credit successful',
+    newBalance: wallets[userId].balance,
+    credited: amount,
+    formattedBalance: `₦${wallets[userId].balance.toLocaleString()}`
+  });
+});
+
+// Transfer between wallets
+app.post('/transfer', (req, res) => {
+  const { fromUserId, toUserId, amount } = req.body;
+
+  // Validation
+  if (!fromUserId || !toUserId || amount === undefined) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Missing required fields: fromUserId, toUserId, amount' 
+    });
+  }
+
+  if (amount <= 0) {
+    return res.status(400).json({ 
+      success: false,
+      message: 'Amount must be greater than 0' 
+    });
+  }
+
+  const fromWallet = wallets[fromUserId];
+  const toWallet = wallets[toUserId];
+
+  if (!fromWallet) {
+    return res.status(404).json({ 
+      success: false,
+      message: 'Sender wallet not found' 
+    });
+  }
+
+  if (!toWallet) {
+    return res.status(404).json({ 
+      success: false,
+      message: 'Recipient wallet not found' 
+    });
+  }
+
+  if (fromWallet.balance < amount) {
+    return res.status(400).json({ 
+      success: false,
+      message: `Insufficient balance. Available: ₦${fromWallet.balance.toLocaleString()}` 
+    });
+  }
+
+  // Perform transfer
+  fromWallet.balance -= amount;
+  toWallet.balance += amount;
+
+  console.log(`[WALLET] ✅ Transfer: ${fromUserId} → ${toUserId}`);
+  console.log(`[WALLET] Amount: ₦${amount.toLocaleString()}`);
+  console.log(`[WALLET] ${fromUserId} new balance: ₦${fromWallet.balance.toLocaleString()}`);
+  console.log(`[WALLET] ${toUserId} new balance: ₦${toWallet.balance.toLocaleString()}`);
+
+  res.json({
+    success: true,
+    message: 'Transfer successful',
+    transfer: {
+      from: fromUserId,
+      to: toUserId,
+      amount,
+      fromBalance: fromWallet.balance,
+      toBalance: toWallet.balance
+    }
   });
 });
 
 app.listen(PORT, () => {
   console.log(`✅ Wallet Service running on port ${PORT}`);
+  console.log(`💰 Managing ${Object.keys(wallets).length} wallets`);
 });

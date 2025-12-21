@@ -1,44 +1,55 @@
 version: '3.8'
 
 services:
-  wallet-service:
-    build:
-      context: ./wallet-service
-      dockerfile: Dockerfile
+  user-service:
+    build: ./wallet-service
     ports:
       - "3001:3001"
-    container_name: wallet-service
-    networks:
-      - wallet-network
     environment:
       - NODE_ENV=development
       - SERVICE_NAME=wallet-service
-
-  bill-payment-service:
-    build:
-      context: ./bill-payment-service
-      dockerfile: Dockerfile
-    ports:
-      - "3002:3002"
-    container_name: bill-payment-service
     networks:
       - wallet-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  bill-payment-service:
+    build: ./bill-payment-service
+    ports:
+      - "3002:3002"
     environment:
       - NODE_ENV=development
       - SERVICE_NAME=bill-payment-service
-
-  notification-service:
-    build:
-      context: ./notification-service
-      dockerfile: Dockerfile
-    ports:
-      - "3003:3003"
-    container_name: notification-service
+      - USER_SERVICE_URL=http://wallet-service:3001
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3003
     networks:
       - wallet-network
+    depends_on:
+      - wallet-service
+      - notification-service
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  notification-service:
+    build: ./notification-service
+    ports:
+      - "3003:3003"
     environment:
       - NODE_ENV=development
       - SERVICE_NAME=notification-service
+    networks:
+      - wallet-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   wallet-network:
