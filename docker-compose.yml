@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  user-service:
+  wallet-service:
     build: ./wallet-service
     ports:
       - "3001:3001"
@@ -23,7 +23,7 @@ services:
     environment:
       - NODE_ENV=development
       - SERVICE_NAME=bill-payment-service
-      - USER_SERVICE_URL=http://wallet-service:3001
+      - WALLET_SERVICE_URL=http://wallet-service:3001
       - NOTIFICATION_SERVICE_URL=http://notification-service:3003
     networks:
       - wallet-network

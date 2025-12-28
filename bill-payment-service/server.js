@@ -1,16 +1,16 @@
 const express = require('express');
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
 // Middleware
 app.use(express.json());
 
-// Environment variables for service URLs (Docker-friendly)
-// Note: docker-compose uses WALLET_SERVICE_URL, but it points to wallet-service
+// Environment variables
 const WALLET_SERVICE_URL = process.env.WALLET_SERVICE_URL || 'http://localhost:3001';
 const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3003';
 
-// In-memory storage for bills
+// In-memory bills
 const userBills = {
   user1: [
     { id: 'bill1', type: 'electricity', amount: 5000, provider: 'EKEDC', status: 'pending' },
@@ -23,7 +23,7 @@ const userBills = {
   ]
 };
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -32,12 +32,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Get user bills
+// Get bills
 app.get('/bills/:userId', (req, res) => {
   const { userId } = req.params;
   const bills = userBills[userId] || [];
   
-  console.log(`[BILLS] Fetching bills for user: ${userId}`);
+  console.log(`[BILLS] Fetching bills for ${userId}`);
   
   res.json({
     userId,
@@ -46,11 +46,10 @@ app.get('/bills/:userId', (req, res) => {
   });
 });
 
-// Buy airtime endpoint
+// Buy airtime
 app.post('/buy-airtime', async (req, res) => {
   const { userId, phoneNumber, amount, provider } = req.body;
   
-  // Validation
   if (!userId || !phoneNumber || !amount || !provider) {
     return res.status(400).json({
       success: false,
@@ -65,73 +64,42 @@ app.post('/buy-airtime', async (req, res) => {
     });
   }
   
-  console.log(`[BILLS] Airtime purchase request: ₦${amount.toLocaleString()} for ${phoneNumber} (${provider})`);
+  console.log(`[BILLS] Airtime: ₦${amount} for ${phoneNumber} (${provider})`);
   
   try {
-    // Step 1: Check and deduct from wallet
-    console.log(`[BILLS] Calling wallet service at: ${WALLET_SERVICE_URL}/deduct`);
-    
-    const walletResponse = await fetch(`${WALLET_SERVICE_URL}/deduct`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, amount })
+    // Deduct from wallet
+    console.log(`[BILLS] Calling wallet: ${WALLET_SERVICE_URL}/deduct`);
+    const { data: walletData } = await axios.post(`${WALLET_SERVICE_URL}/deduct`, {
+      userId,
+      amount
     });
     
-    if (!walletResponse.ok) {
-      const walletError = await walletResponse.json();
-      console.log(`[BILLS] Wallet deduction failed:`, walletError);
-      return res.status(400).json({
-        success: false,
-        message: walletError.message || 'Insufficient funds or wallet not found'
-      });
-    }
+    console.log(`[BILLS] Deducted. New balance: ₦${walletData.newBalance.toLocaleString()}`);
     
-    const walletData = await walletResponse.json();
-    console.log(`[BILLS] Wallet deduction successful. New balance: ₦${walletData.newBalance.toLocaleString()}`);
-    
-    // Step 2: Call external provider API (mocked)
-    console.log(`[BILLS] Calling external provider API...`);
-    
-    const externalResponse = await fetch('https://jsonplaceholder.typicode.com/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        phoneNumber,
-        amount,
-        provider,
-        timestamp: new Date().toISOString()
-      })
+    // External API (mock)
+    await axios.post('https://jsonplaceholder.typicode.com/posts', {
+      userId, phoneNumber, amount, provider, timestamp: new Date().toISOString()
     });
     
-    const externalData = await externalResponse.json();
-    console.log(`[BILLS] External API response received`);
+    console.log(`[BILLS] External API called`);
     
-    // Step 3: Send notification
+    // Send notification
     try {
-      const notificationResponse = await fetch(`${NOTIFICATION_SERVICE_URL}/notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          message: `Airtime purchase of ₦${amount.toLocaleString()} for ${phoneNumber} (${provider}) successful`,
-          type: 'airtime_success'
-        })
+      await axios.post(`${NOTIFICATION_SERVICE_URL}/notify`, {
+        userId,
+        message: `Airtime purchase of ₦${amount.toLocaleString()} for ${phoneNumber} (${provider}) successful`,
+        type: 'airtime_success'
       });
-
-      if (notificationResponse.ok) {
-        console.log('[BILLS] Notification sent successfully');
-      } else {
-        console.log('[BILLS] Notification failed (non-critical)');
-      }
+      console.log('[BILLS] Notification sent ✅');
     } catch (notifError) {
-      console.error('[BILLS] Notification error (non-critical):', notifError.message);
+      console.error('[BILLS] Notification failed (non-critical)');
     }
     
-    // Step 4: Generate transaction
     const transactionId = `TXN-${Date.now()}`;
     
-    const response = {
+    console.log(`[BILLS] ✅ Transaction ${transactionId} completed`);
+    
+    res.json({
       success: true,
       transactionId,
       message: 'Airtime purchase successful',
@@ -143,97 +111,63 @@ app.post('/buy-airtime', async (req, res) => {
         timestamp: new Date().toISOString(),
         walletBalance: walletData.newBalance
       }
-    };
-    
-    console.log(`[BILLS] ✅ Transaction ${transactionId} completed successfully`);
-    
-    res.json(response);
+    });
     
   } catch (error) {
     console.error(`[BILLS] Error:`, error.message);
     
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
-      message: 'Airtime purchase failed',
+      message: error.response?.data?.message || 'Airtime purchase failed',
       error: error.message
     });
   }
 });
 
-// Pay bill endpoint - using stored bill data
+// Pay specific bill
 app.post('/pay-bill/:userId/:billId', async (req, res) => {
   const { userId, billId } = req.params;
   
-  console.log(`[BILLS] Payment request for user: ${userId}, bill: ${billId}`);
+  console.log(`[BILLS] Payment: user ${userId}, bill ${billId}`);
   
-  // Find the bill
   const bills = userBills[userId];
   if (!bills) {
-    return res.status(404).json({
-      success: false,
-      message: 'User not found'
-    });
+    return res.status(404).json({ success: false, message: 'User not found' });
   }
   
   const bill = bills.find(b => b.id === billId);
   if (!bill) {
-    return res.status(404).json({
-      success: false,
-      message: 'Bill not found'
-    });
+    return res.status(404).json({ success: false, message: 'Bill not found' });
   }
   
   if (bill.status === 'paid') {
-    return res.status(400).json({
-      success: false,
-      message: 'Bill already paid'
-    });
+    return res.status(400).json({ success: false, message: 'Bill already paid' });
   }
   
   try {
-    // Deduct from wallet
-    const walletResponse = await fetch(`${WALLET_SERVICE_URL}/deduct`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, amount: bill.amount })
+    // Deduct
+    const { data: walletData } = await axios.post(`${WALLET_SERVICE_URL}/deduct`, {
+      userId,
+      amount: bill.amount
     });
     
-    if (!walletResponse.ok) {
-      const walletError = await walletResponse.json();
-      return res.status(400).json({
-        success: false,
-        message: walletError.message || 'Insufficient funds'
-      });
-    }
-    
-    const walletData = await walletResponse.json();
-    
-    // Mark bill as paid
+    // Mark paid
     bill.status = 'paid';
     bill.paidAt = new Date().toISOString();
     
-    // Send notification
+    // Notify
     try {
-      const notificationResponse = await fetch(`${NOTIFICATION_SERVICE_URL}/notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          message: `Bill payment of ₦${bill.amount.toLocaleString()} for ${bill.type} (${bill.provider}) completed successfully`,
-          type: 'bill_payment_success'
-        })
+      await axios.post(`${NOTIFICATION_SERVICE_URL}/notify`, {
+        userId,
+        message: `Bill payment of ₦${bill.amount.toLocaleString()} for ${bill.type} (${bill.provider}) completed`,
+        type: 'bill_payment_success'
       });
-
-      if (notificationResponse.ok) {
-        console.log('[BILLS] Notification sent successfully');
-      } else {
-        console.log('[BILLS] Notification failed (non-critical)');
-      }
+      console.log('[BILLS] Notification sent ✅');
     } catch (notifError) {
-      console.error('[BILLS] Notification error (non-critical):', notifError.message);
+      console.error('[BILLS] Notification failed (non-critical)');
     }
     
-    console.log(`[BILLS] ✅ Bill ${billId} paid successfully`);
+    console.log(`[BILLS] ✅ Bill ${billId} paid`);
     
     res.json({
       success: true,
@@ -243,21 +177,19 @@ app.post('/pay-bill/:userId/:billId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error(`[BILLS] Error paying bill:`, error.message);
+    console.error(`[BILLS] Error:`, error.message);
     
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
-      message: 'Bill payment failed',
-      error: error.message
+      message: error.response?.data?.message || 'Bill payment failed'
     });
   }
 });
 
-// Pay bill endpoint - generic payment (original functionality)
+// Generic payment
 app.post('/pay', async (req, res) => {
   const { userId, amount, billType } = req.body;
 
-  // Validation
   if (!userId || !amount || !billType) {
     return res.status(400).json({
       success: false,
@@ -265,47 +197,19 @@ app.post('/pay', async (req, res) => {
     });
   }
 
-  if (amount <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: 'Amount must be greater than 0'
-    });
-  }
-
   try {
-    console.log(`[BILLS] Processing generic payment: User ${userId}, Amount ₦${amount.toLocaleString()}, Type ${billType}`);
+    console.log(`[BILLS] Generic payment: ${userId}, ₦${amount}, ${billType}`);
 
-    // 1. Verify user exists
-    const userResponse = await fetch(`${WALLET_SERVICE_URL}/users/${userId}`);
-  
-    if (!userResponse.ok) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    const user = await userResponse.json();
+    // Verify user
+    const { data: user } = await axios.get(`${WALLET_SERVICE_URL}/users/${userId}`);
     console.log(`[BILLS] User verified: ${user.name}`);
 
-    // 2. Deduct from wallet
-    const walletResponse = await fetch(`${WALLET_SERVICE_URL}/deduct`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, amount })
+    // Deduct
+    const { data: walletData } = await axios.post(`${WALLET_SERVICE_URL}/deduct`, {
+      userId,
+      amount
     });
 
-    if (!walletResponse.ok) {
-      const walletError = await walletResponse.json();
-      return res.status(400).json({
-        success: false,
-        message: walletError.message || 'Insufficient funds'
-      });
-    }
-
-    const walletData = await walletResponse.json();
-
-    // 3. Process payment (simulate)
     const payment = {
       id: Date.now(),
       userId,
@@ -315,25 +219,16 @@ app.post('/pay', async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    // 4. Send notification
+    // Notify
     try {
-      const notificationResponse = await fetch(`${NOTIFICATION_SERVICE_URL}/notify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          message: `Payment of ₦${amount.toLocaleString()} for ${billType} completed successfully`,
-          type: 'payment_success'
-        })
+      await axios.post(`${NOTIFICATION_SERVICE_URL}/notify`, {
+        userId,
+        message: `Payment of ₦${amount.toLocaleString()} for ${billType} completed`,
+        type: 'payment_success'
       });
-
-      if (notificationResponse.ok) {
-        console.log('[BILLS] Notification sent successfully');
-      } else {
-        console.log('[BILLS] Notification failed (non-critical)');
-      }
+      console.log('[BILLS] Notification sent ✅');
     } catch (notifError) {
-      console.error('[BILLS] Notification error (non-critical):', notifError.message);
+      console.error('[BILLS] Notification failed (non-critical)');
     }
 
     res.json({ 
@@ -345,16 +240,17 @@ app.post('/pay', async (req, res) => {
 
   } catch (error) {
     console.error('[BILLS] Payment failed:', error.message);
-    res.status(500).json({ 
+    
+    res.status(error.response?.status || 500).json({ 
       success: false, 
-      error: error.message 
+      message: error.response?.data?.message || 'Payment failed',
+      error: error.message
     });
   }
 });
 
-// Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Bill Payment Service running on port ${PORT}`);
-  console.log(`🔗 Wallet service URL: ${WALLET_SERVICE_URL}`);
-  console.log(`🔗 Notification service URL: ${NOTIFICATION_SERVICE_URL}`);
+  console.log(`🔗 Wallet: ${WALLET_SERVICE_URL}`);
+  console.log(`🔗 Notification: ${NOTIFICATION_SERVICE_URL}`);
 });

@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Mock wallet data (Week 2: replace with database)
+// Mock wallet data
 let wallets = {
   'user1': { 
     balance: 50000, 
@@ -25,12 +25,12 @@ let wallets = {
   'user3': { 
     balance: 75000, 
     currency: 'NGN',
-    name: 'Aliyu Nasiru',
-    email: 'nasiru@example.com'
+    name: 'Ibrahim Nasiru',
+    email: 'emeka@example.com'
   }
 };
 
-// Health check endpoint
+// Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
@@ -39,7 +39,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Get all users (for testing)
+// Get all users
 app.get('/users', (req, res) => {
   const users = Object.entries(wallets).map(([userId, wallet]) => ({
     userId,
@@ -53,7 +53,7 @@ app.get('/users', (req, res) => {
   res.json({ users });
 });
 
-// Get specific user info
+// Get specific user
 app.get('/users/:userId', (req, res) => {
   const { userId } = req.params;
   const wallet = wallets[userId];
@@ -61,11 +61,11 @@ app.get('/users/:userId', (req, res) => {
   if (!wallet) {
     return res.status(404).json({ 
       success: false,
-      error: 'User not found' 
+      message: 'User not found' 
     });
   }
 
-  console.log(`[WALLET] User info requested for ${userId}`);
+  console.log(`[WALLET] User info for ${userId}`);
   res.json({
     userId,
     name: wallet.name,
@@ -75,7 +75,7 @@ app.get('/users/:userId', (req, res) => {
   });
 });
 
-// Get wallet balance
+// Get balance
 app.get('/balance/:userId', (req, res) => {
   const { userId } = req.params;
   const wallet = wallets[userId];
@@ -83,7 +83,7 @@ app.get('/balance/:userId', (req, res) => {
   if (!wallet) {
     return res.status(404).json({ 
       success: false,
-      error: 'Wallet not found' 
+      message: 'Wallet not found' 
     });
   }
 
@@ -96,11 +96,10 @@ app.get('/balance/:userId', (req, res) => {
   });
 });
 
-// Deduct from balance (called by bill-payment-service)
+// Deduct from balance
 app.post('/deduct', (req, res) => {
   const { userId, amount } = req.body;
 
-  // Validation
   if (!userId || amount === undefined) {
     return res.status(400).json({ 
       success: false,
@@ -144,11 +143,10 @@ app.post('/deduct', (req, res) => {
   });
 });
 
-// Add to balance (receive payment/credit)
+// Credit balance
 app.post('/credit', (req, res) => {
   const { userId, amount } = req.body;
 
-  // Validation
   if (!userId || amount === undefined) {
     return res.status(400).json({ 
       success: false,
@@ -173,7 +171,7 @@ app.post('/credit', (req, res) => {
   }
 
   wallets[userId].balance += amount;
-  console.log(`[WALLET] ✅ Credited ₦${amount.toLocaleString()} to ${userId} (${wallets[userId].name})`);
+  console.log(`[WALLET] ✅ Credited ₦${amount.toLocaleString()} to ${userId}`);
   console.log(`[WALLET] New balance: ₦${wallets[userId].balance.toLocaleString()}`);
 
   res.json({
@@ -185,11 +183,10 @@ app.post('/credit', (req, res) => {
   });
 });
 
-// Transfer between wallets
+// Transfer
 app.post('/transfer', (req, res) => {
   const { fromUserId, toUserId, amount } = req.body;
 
-  // Validation
   if (!fromUserId || !toUserId || amount === undefined) {
     return res.status(400).json({ 
       success: false,
@@ -228,14 +225,10 @@ app.post('/transfer', (req, res) => {
     });
   }
 
-  // Perform transfer
   fromWallet.balance -= amount;
   toWallet.balance += amount;
 
-  console.log(`[WALLET] ✅ Transfer: ${fromUserId} → ${toUserId}`);
-  console.log(`[WALLET] Amount: ₦${amount.toLocaleString()}`);
-  console.log(`[WALLET] ${fromUserId} new balance: ₦${fromWallet.balance.toLocaleString()}`);
-  console.log(`[WALLET] ${toUserId} new balance: ₦${toWallet.balance.toLocaleString()}`);
+  console.log(`[WALLET] ✅ Transfer: ${fromUserId} → ${toUserId}, ₦${amount.toLocaleString()}`);
 
   res.json({
     success: true,
@@ -250,7 +243,7 @@ app.post('/transfer', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Wallet Service running on port ${PORT}`);
   console.log(`💰 Managing ${Object.keys(wallets).length} wallets`);
 });
