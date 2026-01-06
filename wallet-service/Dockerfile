@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 3001
 
 # Command to run your app
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
