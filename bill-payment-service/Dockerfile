@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 3002
 
 # Start the service
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
